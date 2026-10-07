@@ -51,6 +51,12 @@ _Steps 1 and 2 are built and tested (M1); the rest is on the [roadmap](#roadmap)
 5. Before old data is deleted, a checker compares row counts and checksums on both shards; any mismatch rolls the map back.
 6. k6 runs load during every move, recording error rate and p99 latency.
 
+## Who it helps
+
+- **Who:** Teams whose PostgreSQL database is outgrowing a single machine.
+- **The problem:** Moving a tenant to another shard usually means downtime, and it is hard to prove nothing was lost.
+- **How to use it:** Copy a tenant to another shard while it keeps taking writes, with logical replication keeping the copy in sync and checksums proving both sides match; the cutover is the next milestone.
+
 ## Tech stack
 
 | Area | In M1 | Planned |
