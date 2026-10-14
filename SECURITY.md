@@ -23,5 +23,5 @@ This project is pre-1.0. Only the latest commit on `main` receives fixes.
 
 - Every GitHub Action is pinned to a full commit SHA, and workflows run with read-only
   permissions and without persisted credentials.
-- Dependabot proposes dependency and action updates weekly as reviewable pull requests.
+- Dependabot update pull requests are paused (`open-pull-requests-limit: 0`) so the repository keeps a single `main` branch; dependencies are updated by hand and checked by the CI audit.
 - CI runs lint, tests and a known-vulnerability check (govulncheck) on every push and pull request.
