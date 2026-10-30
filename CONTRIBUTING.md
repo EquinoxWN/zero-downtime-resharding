@@ -4,7 +4,7 @@ Thanks for helping. This is a Go project; issues and pull requests are welcome.
 
 ## Set up and check your change
 
-Needs Go 1.25+ (CI uses 1.26); the tests download PostgreSQL 17 binaries once into .tmp/pg/cache. Caches and virtual environments stay in git-ignored folders inside the repo.
+Needs Go 1.26+ (CI uses 1.26.10); the tests download PostgreSQL 17 binaries once into .tmp/pg/cache. Caches and virtual environments stay in git-ignored folders inside the repo.
 
 ```bash
 make setup   # install dependencies

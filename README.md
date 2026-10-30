@@ -65,11 +65,11 @@ _Steps 1 and 2 are built and tested (M1); the rest is on the [roadmap](#roadmap)
 | Move | Snapshot copy and logical replication, checksum verifier, rollback on failure | Short write fence and map flip at cutover, client retries |
 | Test | Real PostgreSQL servers (embedded-postgres), concurrent writers during a copy | k6 load during every move, Testcontainers |
 
-Language: **Go** (1.25+). Code in [`internal/`](internal): `shardmap` (versioned map, compare-and-swap, PostgreSQL store), `router`, `move` (publication, subscription, lag, abort), `verify`, `schema`, and `localpg` (starts real PostgreSQL servers for tests and the demo); the demo is [`cmd/zero-downtime-resharding`](cmd/zero-downtime-resharding).
+Language: **Go** (1.26+). Code in [`internal/`](internal): `shardmap` (versioned map, compare-and-swap, PostgreSQL store), `router`, `move` (publication, subscription, lag, abort), `verify`, `schema`, and `localpg` (starts real PostgreSQL servers for tests and the demo); the demo is [`cmd/zero-downtime-resharding`](cmd/zero-downtime-resharding).
 
 ## Run it
 
-**Prerequisites:** Go 1.25+. No Docker: the tests and the demo start real PostgreSQL 17 servers on localhost with embedded-postgres, which downloads the binaries once (about 25 MB) into `.tmp/pg/cache`.
+**Prerequisites:** Go 1.26+. No Docker: the tests and the demo start real PostgreSQL 17 servers on localhost with embedded-postgres, which downloads the binaries once (about 25 MB) into `.tmp/pg/cache`.
 
 ```bash
 make setup   # download modules
