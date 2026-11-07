@@ -118,3 +118,26 @@ func TestConcurrentUpdatesNeverLoseOne(t *testing.T) {
 		t.Fatalf("version %d and %d tenants after %d successful updates", m.Version, len(m.Tenants), ok)
 	}
 }
+
+// conflictOnce makes the first CompareAndSwap lose a race, as if another writer got there first.
+type conflictOnce struct {
+	*MemoryStore
+	lost bool
+}
+
+func (s *conflictOnce) CompareAndSwap(ctx context.Context, expect uint64, next Map) error {
+	if !s.lost {
+		s.lost = true
+		return ErrVersionConflict
+	}
+	return s.MemoryStore.CompareAndSwap(ctx, expect, next)
+}
+
+func TestUpdateRetriesAfterLosingARace(t *testing.T) {
+	ctx := context.Background()
+	s := &conflictOnce{MemoryStore: &MemoryStore{}}
+	m, err := Update(ctx, s, func(m *Map) error { *m = base(); return nil })
+	if err != nil || m.Version != 1 || !s.lost {
+		t.Fatalf("after one lost race: version %d, %v", m.Version, err)
+	}
+}

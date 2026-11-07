@@ -15,7 +15,7 @@ Three real PostgreSQL 17 servers start on localhost (a control database and two 
 
 ![Demo: copy, lag while writing, checksums on both shards](docs/proof/demo.jpg)
 
-17 tests pass, 6 of them against the real servers (including about 7,500 concurrent transactions during a copy), and every compiled dependency is free of known vulnerabilities:
+17 tests passed at M1 (22 since the [2026-11-01 quality pass](docs/quality/2026-11-01.md)), 6 of them against the real servers (including about 7,500 concurrent transactions during a copy), and every compiled dependency is free of known vulnerabilities:
 
 ![go test and the dependency check](docs/proof/tests.jpg)
 
@@ -74,7 +74,7 @@ Language: **Go** (1.26+). Code in [`internal/`](internal): `shardmap` (versioned
 ```bash
 make setup   # download modules
 make lint    # gofmt and go vet
-make test    # 17 tests; the integration tests start a control database and two shards
+make test    # 22 tests; the integration tests start a control database and two shards
 make demo    # move a 200,000-order tenant while four workers keep writing to it
 make audit   # govulncheck
 ```
@@ -96,7 +96,8 @@ Full numbers, the injected-bug checks and the demo output: [docs/results/m1.md](
 
 | Check | Result |
 |---|---|
-| Tests (`make test`) | **17 passed**, 0 failed, 6 of them against three real PostgreSQL 17 servers |
+| Tests (`make test`) | **22 passed**, 0 failed, 6 of them against three real PostgreSQL 17 servers |
+| Quality pass | 14 hand mutations: 10 killed before, all 14 after four new tests: [docs/quality/2026-11-01.md](docs/quality/2026-11-01.md) |
 | Writes during a move | about 7,500 transactions (test) and 35,000 (demo) committed during the copy and stream: none failed, none lost, none duplicated; p99 1.2 ms |
 | Exactly one tenant | equal row counts and md5 checksums for the moved tenant on both shards; no row of another tenant reaches the target |
 | Copy and lag | 200,000 orders copied in 1.7 s; lag 20 to 570 KB of WAL under about 7,000 transactions per second, 0 bytes once writes stop |
@@ -108,9 +109,9 @@ Full numbers, the injected-bug checks and the demo output: [docs/results/m1.md](
 
 ```mermaid
 flowchart TB
-  SM["shardmap (5)<br/>validation, CAS, 20 concurrent writers"] --> MAP["internal/shardmap"]
-  RT["router (3)<br/>routing, cache refresh"] --> RTR["internal/router"]
-  MVT["move (2)<br/>row filter SQL, conninfo quoting"] --> MOV["internal/move"]
+  SM["shardmap (6)<br/>validation, CAS, 20 concurrent writers,<br/>retry after a lost race"] --> MAP["internal/shardmap"]
+  RT["router (4)<br/>routing, cache refresh,<br/>never an older map"] --> RTR["internal/router"]
+  MVT["move (5)<br/>row filter SQL, conninfo quoting,<br/>rollback, refusals, bounded waits"] --> MOV["internal/move"]
   SC["schema (1)<br/>identifier safety"] --> SCH["internal/schema"]
   IT["integration (6) on 3 real PostgreSQL 17 servers<br/>copy + stream, writes during copy,<br/>refusals, abort leaves no trace"] --> MOV & RTR & MAP
   IT --> VER["internal/verify"]
@@ -154,6 +155,7 @@ What this repo must show before it counts as done:
 - [ADR 0002: per-tenant logical replication](docs/adr/0002-per-tenant-logical-replication.md)
 - [ADR 0003: versioned shard map with compare-and-swap](docs/adr/0003-versioned-shard-map-with-compare-and-swap.md)
 - [M1 results](docs/results/m1.md)
+- [Quality check 2026-11-01](docs/quality/2026-11-01.md)
 
 ## Scope
 

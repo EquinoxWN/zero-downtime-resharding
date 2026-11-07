@@ -1,4 +1,4 @@
-.PHONY: setup lint test demo bench audit ci
+.PHONY: setup lint test race demo bench audit ci
 
 setup:
 	go mod download
@@ -8,10 +8,14 @@ lint:
 	@test -z "$$(gofmt -l cmd internal)" || (gofmt -l cmd internal; exit 1)
 	go vet ./...
 
-# 17 tests: shard map and router unit tests, and integration tests that start three real
+# 22 tests: shard map and router unit tests, and integration tests that start three real
 # PostgreSQL 17 servers (binaries downloaded once into .tmp/pg/cache). Add -short to skip those.
 test:
 	go test -count=1 ./...
+
+# The race detector on the unit tests (needs cgo; CI runs it on Linux).
+race:
+	go test -race -short -count=1 ./...
 
 # Move a 200,000-order tenant between two shards while four workers write to it.
 demo:

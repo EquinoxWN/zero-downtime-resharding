@@ -75,3 +75,42 @@ func TestAnExpiredCacheIsReread(t *testing.T) {
 		t.Fatalf("Version = %d", r.Version())
 	}
 }
+
+// laggingStore answers with an older map once, like a replica that has not caught up.
+type laggingStore struct {
+	*shardmap.MemoryStore
+	old *shardmap.Map
+}
+
+func (s *laggingStore) Load(ctx context.Context) (shardmap.Map, error) {
+	if s.old != nil {
+		m := *s.old
+		s.old = nil
+		return m, nil
+	}
+	return s.MemoryStore.Load(ctx)
+}
+
+func TestARefreshNeverGoesBackToAnOlderMap(t *testing.T) {
+	mem, r := setup(t)
+	old, err := mem.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := shardmap.Update(context.Background(), mem, func(m *shardmap.Map) error {
+		m.Tenants[1] = shardmap.Placement{Shard: "b"}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Refresh(context.Background()); err != nil || r.Version() != 2 {
+		t.Fatalf("refresh to v2: %d %v", r.Version(), err)
+	}
+	r.store = &laggingStore{MemoryStore: mem, old: &old}
+	if err := r.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if s, v, _ := r.Shard(context.Background(), 1); r.Version() != 2 || s.ID != "b" || v != 2 {
+		t.Fatalf("an older map replaced the cache: version %d, tenant 1 on %s", r.Version(), s.ID)
+	}
+}
