@@ -82,7 +82,7 @@ func Start(names ...string) (*Cluster, error) {
 		}
 		c.Servers = append(c.Servers, &Server{
 			Name: name, Port: port, db: db,
-			DSN: fmt.Sprintf("postgres://postgres:%s@localhost:%d/postgres?sslmode=disable", password, port),
+			DSN: fmt.Sprintf("postgres://postgres:%s@localhost:%d/postgres?sslmode=disable&connect_timeout=10", password, port),
 		})
 	}
 	return c, nil

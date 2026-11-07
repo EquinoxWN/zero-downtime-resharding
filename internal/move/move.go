@@ -123,7 +123,10 @@ func (mv *Mover) Start(ctx context.Context, tenant int64, target shardmap.ShardI
 	if _, err := src.Exec(ctx, pub); err != nil {
 		return mv.rollback(ctx, tenant, fmt.Errorf("create publication: %w", err))
 	}
-	srcShard, _, _ := m.Lookup(tenant)
+	srcShard, _, err := m.Lookup(tenant)
+	if err != nil {
+		return mv.cleanupAndRollback(ctx, tenant, err)
+	}
 	sub, err := SubscriptionSQL(tenant, srcShard.DSN)
 	if err != nil {
 		return mv.cleanupAndRollback(ctx, tenant, err)
@@ -146,25 +149,17 @@ func (mv *Mover) WaitCopied(ctx context.Context, tenant int64, timeout time.Dura
 	if err != nil {
 		return 0, err
 	}
-	deadline := start.Add(timeout)
-	for {
-		var total, ready int
+	var total, ready int
+	err = waitUntil(ctx, timeout, pollEvery, func() (bool, error) {
 		err := dst.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE r.srsubstate IN ('r', 's'))
 			FROM pg_subscription_rel r JOIN pg_subscription s ON s.oid = r.srsubid WHERE s.subname = $1`, Name(tenant)).Scan(&total, &ready)
-		if err != nil {
-			return 0, err
-		}
-		if total == len(schema.Tables) && ready == total {
-			break
-		}
-		if time.Now().After(deadline) {
-			return 0, fmt.Errorf("snapshot copy of tenant %d not finished after %v (%d of %d tables)", tenant, timeout, ready, total)
-		}
-		select {
-		case <-ctx.Done():
-			return 0, ctx.Err()
-		case <-time.After(50 * time.Millisecond):
-		}
+		return err == nil && total == len(schema.Tables) && ready == total, err
+	})
+	if errors.Is(err, errTimeout) {
+		return 0, fmt.Errorf("snapshot copy of tenant %d not finished after %v (%d of %d tables)", tenant, timeout, ready, total)
+	}
+	if err != nil {
+		return 0, err
 	}
 	_, err = shardmap.Update(ctx, mv.Store, func(m *shardmap.Map) error {
 		p := m.Tenants[tenant]
@@ -199,16 +194,43 @@ func (mv *Mover) Lag(ctx context.Context, tenant int64) (int64, error) {
 
 // WaitCaughtUp waits until the lag is at most maxBytes.
 func (mv *Mover) WaitCaughtUp(ctx context.Context, tenant int64, maxBytes int64, timeout time.Duration) (int64, error) {
+	var lag int64
+	err := waitUntil(ctx, timeout, pollEvery, func() (bool, error) {
+		var err error
+		lag, err = mv.Lag(ctx, tenant)
+		return err == nil && lag <= maxBytes, err
+	})
+	if errors.Is(err, errTimeout) {
+		return lag, fmt.Errorf("tenant %d still %d bytes behind after %v", tenant, lag, timeout)
+	}
+	return lag, err
+}
+
+// pollEvery is how often the wait loops ask PostgreSQL again.
+const pollEvery = 50 * time.Millisecond
+
+var errTimeout = errors.New("timed out")
+
+// waitUntil calls done until it reports true, returns its error, or the timeout or ctx ends it.
+// The deadline uses the monotonic clock (time.Now carries it), so wall-clock jumps do not matter.
+func waitUntil(ctx context.Context, timeout, every time.Duration, done func() (bool, error)) error {
 	deadline := time.Now().Add(timeout)
 	for {
-		lag, err := mv.Lag(ctx, tenant)
-		if err != nil || lag <= maxBytes {
-			return lag, err
+		ok, err := done()
+		if err != nil {
+			return err
 		}
-		if time.Now().After(deadline) {
-			return lag, fmt.Errorf("tenant %d still %d bytes behind after %v", tenant, lag, timeout)
+		if ok {
+			return nil
 		}
-		time.Sleep(50 * time.Millisecond)
+		if !time.Now().Before(deadline) {
+			return errTimeout
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(every):
+		}
 	}
 }
 
@@ -270,9 +292,15 @@ func (mv *Mover) pools(ctx context.Context, m shardmap.Map, tenant int64) (src, 
 	return src, dst, err
 }
 
+// cleanupAndRollback undoes a half-made move; cleanup failures are returned with the cause,
+// because they can leave a publication or replication slot behind on the source.
 func (mv *Mover) cleanupAndRollback(ctx context.Context, tenant int64, cause error) error {
-	if m, err := mv.Store.Load(ctx); err == nil {
-		_ = mv.cleanup(ctx, m, tenant)
+	m, err := mv.Store.Load(ctx)
+	if err == nil {
+		err = mv.cleanup(ctx, m, tenant)
+	}
+	if err != nil {
+		cause = errors.Join(cause, fmt.Errorf("cleanup after a failed start: %w", err))
 	}
 	return mv.rollback(ctx, tenant, cause)
 }

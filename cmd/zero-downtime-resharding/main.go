@@ -28,7 +28,14 @@ import (
 func main() {
 	orders := flag.Int("orders", 200000, "orders of the tenant that moves")
 	flag.Parse()
-	if err := run(context.Background(), *orders); err != nil {
+	if *orders < 1 || *orders > 10_000_000 {
+		fmt.Fprintln(os.Stderr, "error: -orders must be 1 to 10000000")
+		os.Exit(2)
+	}
+	// The whole demo has a deadline, so a stuck server cannot hang it.
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	defer cancel()
+	if err := run(ctx, *orders); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
@@ -177,7 +184,9 @@ func run(ctx context.Context, orders int) error {
 		return err
 	}
 	var copiedRows int64
-	_ = b.QueryRow(ctx, "SELECT count(*) FROM orders WHERE tenant_id = 3").Scan(&copiedRows)
+	if err := b.QueryRow(ctx, "SELECT count(*) FROM orders WHERE tenant_id = 3").Scan(&copiedRows); err != nil {
+		return err
+	}
 	fmt.Printf("  snapshot copy finished in %.2f s (%d orders on shard-b so far); streaming took over\n", copied.Seconds(), copiedRows)
 	fmt.Printf("\n  %-8s %-14s %-18s\n", "time", "lag (bytes)", "writes so far")
 	for i := range 6 {
@@ -209,10 +218,17 @@ func run(ctx context.Context, orders int) error {
 		equal = equal && rep.Equal()
 	}
 	var others int64
-	_ = b.QueryRow(ctx, "SELECT count(*) FROM orders WHERE tenant_id IN (1, 2, 4)").Scan(&others)
-	m, _ = store.Load(ctx)
+	if err := b.QueryRow(ctx, "SELECT count(*) FROM orders WHERE tenant_id IN (1, 2, 4)").Scan(&others); err != nil {
+		return err
+	}
+	if m, err = store.Load(ctx); err != nil {
+		return err
+	}
 	p := m.Tenants[3]
-	served, _, _ := r.Shard(ctx, 3)
+	served, _, err := r.Shard(ctx, 3)
+	if err != nil {
+		return err
+	}
 	fmt.Printf("\nRows of tenants 1, 2 and 4 copied to shard-b: %d\n", others)
 	fmt.Printf("Shard map v%d: tenant 3 on %s, moving to %s, phase %q; the router still sends it to %s.\n", m.Version, p.Shard, p.MovingTo, p.Phase, served.ID)
 	fmt.Println("Next (M2): fence tenant 3's writes for a moment, drain the last changes and flip the map.")
